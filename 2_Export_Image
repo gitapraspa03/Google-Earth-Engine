@@ -1,0 +1,162 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = 
+    /* color: #d63000 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[106.40261903789256, -5.98410709728971],
+          [106.40261903789256, -6.051710384193803],
+          [106.51007905986522, -6.051710384193803],
+          [106.51007905986522, -5.98410709728971]]], null, false),
+    geometry2 = 
+    /* color: #d63000 */
+    /* shown: false */
+    ee.Geometry.Polygon(
+        [[[106.40233314013702, -6.014179127845709],
+          [106.41005790209991, -6.0225441745406005],
+          [106.420700907471, -6.029201976771373],
+          [106.43649375415069, -6.032616202635461],
+          [106.44027030444366, -6.032104070126211],
+          [106.4423302409671, -6.032616202635461],
+          [106.44645011401397, -6.035006147948162],
+          [106.4565781352542, -6.037225373444395],
+          [106.46035468554717, -6.038078919291713],
+          [106.47031104541045, -6.04268804362109],
+          [106.47511756396514, -6.045248651290814],
+          [106.48438727832061, -6.047467834801792],
+          [106.49091041064483, -6.045419358037949],
+          [106.49554526782256, -6.042517336012329],
+          [106.51528632617217, -6.02032488898781],
+          [106.51588516168103, -5.984306961073883],
+          [106.40250448223672, -5.985159434072499]]]),
+    geometry3 = 
+    /* color: #98ff00 */
+    /* shown: false */
+    ee.Geometry.MultiPoint();
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+//cloud mask
+function maskL8sr(col) {
+  // Bits 3 and 5 are cloud shadow and cloud, respectively.
+  var cloudShadowBitMask = (1 << 3);
+  var cloudsBitMask = (1 << 5);
+  // Get the pixel QA band.
+  var qa = col.select('pixel_qa');
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudShadowBitMask).eq(0)
+                 .and(qa.bitwiseAnd(cloudsBitMask).eq(0));
+  return col.updateMask(mask);
+}
+
+//vis params
+var vizParams = {
+bands: ['B5', 'B6', 'B4'],
+min: 0,
+max: 4000,
+gamma: [1, 0.9, 1.1]
+};
+
+var vizParams2 = {
+bands: ['B4', 'B3', 'B2'],
+min: 0,
+max: 3000,
+gamma: 1.4,
+};
+var geometry3 = ee.Geometry.Point([106.48, -6.037]);
+Map.addLayer(geometry3);
+//load the collection:
+ {
+var col = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
+.map(maskL8sr)
+.filterDate('2019-01-01','2019-11-30')
+.filterBounds(geometry);
+}
+print(col, 'collection');
+
+//imagen reduction
+{
+var image = ee.Image('LANDSAT/LC08/C01/T1_SR/LC08_122064_20201218');
+print(image, 'image');
+Map.addLayer(image, vizParams2);
+}
+
+
+//median
+{
+var ndvi = image.normalizedDifference(['B5', 
+'B4']).rename('NDVI');
+var ndviParams = {min: -1, max: 1, palette: ['blue', 'white', 
+'green']};
+print(ndvi,'ndvi');
+Map.addLayer(ndvi, ndviParams, 'ndvi');
+}
+
+//select thermal band 10(with brightness tempereature), no calculation 
+var thermal= image.select('B10').multiply(0.1);
+var b10Params = {min: 291.918, max: 302.382, palette: ['blue', 
+'white', 'green']};
+Map.addLayer(thermal, b10Params, 'thermal');
+
+// find the min and max of NDVI
+{
+var min = ee.Number(ndvi.reduceRegion({
+reducer: ee.Reducer.min(),
+geometry: geometry,
+scale: 30,
+maxPixels: 1e9
+}).values().get(0));
+print(min, 'min');
+var max = ee.Number(ndvi.reduceRegion({
+reducer: ee.Reducer.max(),
+geometry: geometry,
+scale: 30,
+maxPixels: 1e9
+}).values().get(0));
+print(max, 'max');
+}
+
+//fractional vegetation
+{
+var fv =(ndvi.subtract(min).divide(max.subtract(min))).pow(ee.Number(2)).rename('FV'); 
+print(fv, 'fv');
+Map.addLayer(fv);
+}
+
+//Emissivity
+var a= ee.Number(0.004);
+var b= ee.Number(0.986);
+var EM=fv.multiply(a).add(b).rename('EMM');
+var imageVisParam3 = {min: 0.9865619146722164, max:0.989699971371314};
+Map.addLayer(EM, imageVisParam3,'EMM');
+
+//LST in Celsius Degree bring -273.15
+//NB: In Kelvin don't bring -273.15
+var LST = thermal.expression(
+'(0.0684*(T*T*T))-(5.3082*(T*T))+(137.59*T)-1161.2', {
+ 'T': thermal.select('B10').subtract(273.15)
+}).rename('LST');
+Map.addLayer(LST.clip(geometry2), {min: -5, max:40, palette: [
+'040274', '040281', '0502a3', '0502b8', '0502ce', '0502e6',
+'0602ff', '235cb1', '307ef3', '269db1', '30c8e2', '32d3ef',
+'3be285', '3ff38f', '86e26f', '3ae237', 'b5e22e', 'd6e21f',
+'fff705', 'ffd611', 'ffb613', 'ff8b13', 'ff6e08', 'ff500d',
+'ff0000', 'de0101', 'c21301', 'a71001', '911003'
+ ]},'LST');
+ 
+
+ // Export a cloud-optimized GeoTIFF.
+Export.image.toDrive({
+  image: LST,
+  description: 'SST',
+  folder: 'GEE',
+  fileNamePrefix: '20201209',
+  scale: 30,
+  region: geometry2,
+  fileFormat: 'GeoTIFF',
+  formatOptions: {
+    cloudOptimized: true
+  }
+});
