@@ -1,0 +1,86 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var geometry = /* color: #98ff00 */ee.Geometry.Point([106.48003167644495, -6.030928476594261]),
+    l8sr = ee.ImageCollection("LANDSAT/LC08/C01/T1_SR"),
+    imageVisParam = {"opacity":1,"bands":["B4","B3","B2"],"min":0,"max":2000,"gamma":1},
+    S2 = ee.ImageCollection("COPERNICUS/S2"),
+    imageVisParam2 = {"opacity":1,"bands":["B4","B3","B2"],"min":338.5,"max":2341,"gamma":1},
+    ROI = 
+    /* color: #d63000 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[106.42203997730054, -5.994677194449207],
+          [106.42203997730054, -6.05067134600131],
+          [106.53464984058179, -6.05067134600131],
+          [106.53464984058179, -5.994677194449207]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+/*
+ Diadaptasi dari script Noel Gorelick, David Gibson, Nicholas Clinton, dan Hadi
+ https://code.earthengine.google.com/?accept_repo=users/gorelick/EE101
+ https://code.earthengine.google.com/?accept_repo=users/gorelick/EE101-B
+ https://code.earthengine.google.com/?accept_repo=users/nclinton/EE101
+ https://code.earthengine.google.com/?accept_repo=users/dag/ee101
+ https://code.earthengine.google.com/?accept_repo=users/hadicu06/expertWorkshopJune_rev
+*/
+
+var geometry2 = ee.Geometry.Point([106.48, -6.037]);
+Map.addLayer(geometry2);
+
+// ketik 'landsat 8 surface reflectance' pada kolom pencarian dan import data tier 1.
+// ganti nama import menjadi l8sr.
+// tampikan gambar
+//Map.addLayer(l8sr, {bands: ['B4', 'B3', 'B2'], min: 0, max: 3000}, 'Landsat 8 SR');
+// code ini secara implisit menggunakan mosaic() untuk composite terbaru.  
+// Explore collection menggunakan inspector.
+// Buat satu point dari daerah interest menggunakan geometry tools.
+
+
+function maskL8sr(image) {
+  // Bits 3 and 5 are cloud shadow and cloud, respectively.
+  var cloudShadowBitMask = (1 << 3);
+  var cloudsBitMask = (1 << 5);
+  // Get the pixel QA band.
+  var qa = image.select('pixel_qa');
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudShadowBitMask).eq(0)
+                 .and(qa.bitwiseAnd(cloudsBitMask).eq(0));
+  return image.updateMask(mask);}
+  
+var post_event = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR').filterBounds(geometry).filterDate('2019-01-01', '2020-12-31')
+.map(maskL8sr)
+var rgbVis = {
+  bands: ['B4', 'B3', 'B2'],
+  min: 0,
+  max: 3000,
+  gamma: 1.4,
+};
+
+Map.addLayer(post_event.median().clip(ROI), rgbVis, 'post event');
+
+// Dapatkan gambar yang berada pada point yang dibuat.
+//var filter_spasial = l8sr.filterBounds(geometry);
+
+// Ada berapa banyak gambar yang berada point?
+print('Jumlah Gambar pada Point', post_event.size());
+
+// jika kurang dari 5000 maka dapat di print.
+print('filter spasial', post_event);
+
+// filter data menggunakan tanggal yang diinginkan.
+//var filter_tanggal = filter_spasial
+//    .filterDate('2019-09-01', '2020-11-30');
+//print('filter tanggal', filter_tanggal);
+
+// Sort gambar berdasarkan properti lain.
+var sorted = post_event.sort('CLOUD_COVER');
+
+// Print list pertama dari properti (gambar dengan tutupanawan paling rendah).
+print('least cloudy image:', sorted);
+
+// Import gambar berdasarkan informasi yang telah di print
+var image = ee.Image('LANDSAT/LC08/C01/T1_SR/LC08_122064_20201031');
+Map.addLayer(image.clip(ROI),rgbVis,'Gambar Bebas Awan',0);
